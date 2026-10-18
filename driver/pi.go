@@ -13,7 +13,7 @@ type Pi struct {
 
 func (Pi) Name() string { return "pi" }
 
-func (p Pi) Start(_ context.Context, prompt, cwd string) (Stream, error) {
+func (p Pi) Start(ctx context.Context, prompt, cwd string) (Stream, error) {
 	env := map[string]string{}
 	if p.AgentDir != "" {
 		env["PI_CODING_AGENT_DIR"] = p.AgentDir
@@ -27,7 +27,7 @@ func (p Pi) Start(_ context.Context, prompt, cwd string) (Stream, error) {
 		Env:   env,
 		Parse: parsePiLine,
 	}
-	return cli.Start(context.Background(), prompt, cwd)
+	return cli.Start(ctx, prompt, cwd)
 }
 
 func parsePiLine(line []byte, emit func(Event)) {

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"syscall"
+	"time"
 )
 
 // CLI is the subprocess driver base: spawn in its own process group, stream
@@ -22,7 +23,7 @@ type CLI struct {
 
 func (c *CLI) Binary() string { return c.Bin }
 
-func (c *CLI) Start(_ context.Context, prompt, cwd string) (Stream, error) {
+func (c *CLI) Start(ctx context.Context, prompt, cwd string) (Stream, error) {
 	cmd := exec.Command(c.Bin, c.Args(prompt, cwd)...)
 	cmd.Dir = cwd
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -47,6 +48,12 @@ func (c *CLI) Start(_ context.Context, prompt, cwd string) (Stream, error) {
 		final:  c.Final,
 	}
 	go s.drain(stdout)
+	if ctx.Done() != nil {
+		go func() {
+			<-ctx.Done()
+			s.Cancel()
+		}()
+	}
 	return s, nil
 }
 
@@ -66,19 +73,28 @@ func (s *cliStream) Cancel() error {
 		return nil
 	}
 	// negative pid -> whole process group
-	return syscall.Kill(-s.cmd.Process.Pid, syscall.SIGTERM)
+	pid := s.cmd.Process.Pid
+	syscall.Kill(-pid, syscall.SIGTERM)
+	time.AfterFunc(3*time.Second, func() { syscall.Kill(-pid, syscall.SIGKILL) })
+	return nil
 }
 
 func (s *cliStream) Wait() (Result, error) { return <-s.done, nil }
 
+const bufCap = 4 << 20 // keep only the tail of a harness's output for Final
+
 func (s *cliStream) drain(rdr interface{ Read([]byte) (int, error) }) {
 	sc := bufio.NewScanner(rdr)
 	sc.Buffer(make([]byte, 1<<16), 1<<20)
-	emit := func(e Event) { s.events <- e }
+	emitted := 0
+	emit := func(e Event) { emitted++; s.events <- e }
 	for sc.Scan() {
 		line := sc.Bytes()
 		s.buf = append(s.buf, line...)
 		s.buf = append(s.buf, '\n')
+		if len(s.buf) > bufCap {
+			s.buf = append([]byte(nil), s.buf[len(s.buf)-bufCap:]...)
+		}
 		if s.parse != nil {
 			s.parse(line, emit)
 		}
@@ -86,6 +102,16 @@ func (s *cliStream) drain(rdr interface{ Read([]byte) (int, error) }) {
 	err := s.cmd.Wait()
 	if s.final != nil {
 		s.final(s.buf, emit)
+	}
+	if emitted == 0 && len(s.buf) > 0 {
+		tail := s.buf
+		if len(tail) > 8192 {
+			tail = tail[len(tail)-8192:]
+		}
+		s.events <- Event{Kind: "text", Text: string(tail)}
+	}
+	if err != nil {
+		s.events <- Event{Kind: "error", Text: err.Error()}
 	}
 	close(s.events)
 	res := Result{StopReason: "end_turn"}

@@ -16,7 +16,7 @@ type Mojo struct{ Bin string }
 
 func (Mojo) Name() string { return "mojo" }
 
-func (m Mojo) Start(_ context.Context, prompt, cwd string) (Stream, error) {
+func (m Mojo) Start(ctx context.Context, prompt, cwd string) (Stream, error) {
 	bin := m.Bin
 	if bin == "" {
 		bin = os.Getenv("MILOU_MOJO_BIN")
@@ -38,7 +38,7 @@ func (m Mojo) Start(_ context.Context, prompt, cwd string) (Stream, error) {
 		Parse: parseMojoLine,
 		Final: mojoFinal(transcript),
 	}
-	return cli.Start(context.Background(), prompt, cwd)
+	return cli.Start(ctx, prompt, cwd)
 }
 
 var mojoCmdLine = regexp.MustCompile(`^\$ (.*)$`)

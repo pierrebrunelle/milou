@@ -24,8 +24,24 @@ type Manager struct {
 type Session struct {
 	ID     string
 	Cwd    string
-	Mode   string        // current driver name
+	Mode   string // current driver name
+	mu     sync.Mutex
 	stream driver.Stream // in-flight turn, cancel target
+}
+
+func (s *Session) setStream(st driver.Stream) {
+	s.mu.Lock()
+	s.stream = st
+	s.mu.Unlock()
+}
+
+func (s *Session) cancel() {
+	s.mu.Lock()
+	st := s.stream
+	s.mu.Unlock()
+	if st != nil {
+		st.Cancel()
+	}
 }
 
 func NewManager(fallback string, drivers ...driver.Driver) *Manager {
@@ -130,12 +146,12 @@ func (m *Manager) prompt(s *acp.Server, p acp.PromptParams) (any, *acp.Error) {
 	if err != nil {
 		return nil, &acp.Error{Code: -32603, Message: err.Error()}
 	}
-	sess.stream = st
+	sess.setStream(st)
 	for ev := range st.Events() {
 		m.emit(s, p.SessionID, ev)
 	}
 	res, _ := st.Wait()
-	sess.stream = nil
+	sess.setStream(nil)
 	return acp.PromptResult{StopReason: res.StopReason}, nil
 }
 
@@ -156,8 +172,8 @@ func (m *Manager) emit(s *acp.Server, sid string, ev driver.Event) {
 func (m *Manager) HandleNotify(_ *acp.Server, n *acp.Notification) {
 	if n.Method == acp.MSessionCancel {
 		if id, _ := n.Params["sessionId"].(string); id != "" {
-			if sess := m.get(id); sess != nil && sess.stream != nil {
-				sess.stream.Cancel()
+			if sess := m.get(id); sess != nil {
+				sess.cancel()
 			}
 		}
 	}
