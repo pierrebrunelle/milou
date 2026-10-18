@@ -14,6 +14,7 @@ func (Echo) Start(_ context.Context, prompt, cwd string) (Stream, error) {
 	ch := make(chan Event, 2)
 	s := &chanStream{ch: ch, done: make(chan Result, 1)}
 	ch <- Event{Kind: "text", Text: fmt.Sprintf("[echo] %s", prompt)}
+	close(ch)
 	s.done <- Result{StopReason: "end_turn"}
 	return s, nil
 }

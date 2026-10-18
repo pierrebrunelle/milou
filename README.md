@@ -13,7 +13,10 @@ tool set, and orchestration loop that makes a model an agent.
 
 Early scaffold. `initialize`, `session/new`, `session/prompt` (with `@driver`
 routing), `session/set_mode`, and `session/cancel` work over stdio NDJSON-RPC.
-Driver registry currently ships `echo`; real drivers land next (see below).
+`mojo` and `pi` drivers spawn real subprocesses and stream their events;
+`--serve ADDR` additionally exposes every driver as an OpenAI-compatible
+`model` (`milou/pi`, `milou/mojo`) so any chat UI or SDK can pick a harness
+without speaking ACP.
 
 ## Design
 
@@ -40,8 +43,8 @@ capabilities differently; unknown event types degrade to text chunks.
 | name | mechanism | status |
 | --- | --- | --- |
 | echo | in-process | works |
-| mojo | `agent --repo DIR` subprocess | planned |
-| pi | `pi -p --mode json` | planned |
+| mojo | `agent --repo DIR` subprocess | works |
+| pi | `pi -p --mode json` | works |
 | opencode | `opencode run --format json` | planned |
 | dsh | `dsh --profile headless --json` | planned |
 | aider | `aider --message` | planned |
@@ -64,6 +67,23 @@ Register in Zed `settings.json`:
 
 Then in the agent panel: `@pi <task>`, or pick the harness from the mode
 selector (each driver is an ACP mode).
+
+## Any client, not just ACP
+
+`milou --serve 127.0.0.1:9000` starts an OpenAI-compatible endpoint. Drivers
+become models — point any OpenAI-speaking tool (Open WebUI, Cline, an SDK,
+curl) at it and select the harness by name:
+
+```bash
+curl http://127.0.0.1:9000/v1/chat/completions -d '{
+  "model": "milou/pi",
+  "stream": true,
+  "messages": [{"role":"user","content":"fix the bug in calc.py"}]
+}'
+```
+
+`model: "milou"` alone uses the default driver, and a leading `@name` tag in
+the message still overrides it.
 
 ## Relationship to mojo-max-agent
 
